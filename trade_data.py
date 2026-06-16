@@ -6,13 +6,27 @@
 daily_stats.py 与 daily_report.py 都从这里 import —— 单一真相源，避免口径漂移。
 口径完全等同原 daily_stats.py。"""
 import datetime as dt
-import gzip, io, time, zipfile
+import gzip, io, time, tomllib, zipfile
 from pathlib import Path
 import requests, urllib3, pandas as pd
 
 urllib3.disable_warnings()
+
+
+def _load_config():
+    """读 config.toml（与本文件同目录，cwd 无关）；缺失则返回空 dict 用默认值。"""
+    p = Path(__file__).resolve().parent / "config.toml"
+    if p.exists():
+        with open(p, "rb") as f:
+            return tomllib.load(f)
+    return {}
+
+
+_CFG = _load_config()
+_proxy = _CFG.get("proxy", "http://127.0.0.1:7890")   # 缺省=本机 clash；config 里设 "" 则直连
+PROXY = {"http": _proxy, "https": _proxy} if _proxy else None
+SLACK_WEBHOOK_URL = _CFG.get("slack_webhook_url", "")
 OUTDIR = Path("data/daily")
-PROXY = {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"}
 BYLIN = {"PEPE": "1000PEPEUSDT"}
 OKX_CTVAL = {"BTC": 0.01, "SUI": 1, "AAVE": 0.1, "DOGE": 1000, "LINK": 1, "ARB": 10, "XRP": 100, "PEPE": 1e7}
 

@@ -13,5 +13,8 @@ __pycache__/
 .env
 *.env
 
+# 本机配置（含 webhook，不进仓库；模板 config.example.toml 进仓库）
+config.toml
+
 # macOS
 .DS_Store

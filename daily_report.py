@@ -5,11 +5,11 @@
 """每日单笔报单量报告：最近3个已发布UTC日 → P50/75/90(3天中位)+POV(P75) → Slack + JSON 存档。
 用法: SLACK_WEBHOOK_URL=... uv run daily_report.py
 口径=trade_data 的原始·全部（每笔 notional 分位，不聚合不去微）。"""
-import argparse, datetime as dt, json, os, sys
+import argparse, datetime as dt, json, sys
 from pathlib import Path
 import numpy as np, pandas as pd, requests
 from tabulate import tabulate
-from trade_data import (PROXY, _exists, build_notional, inst_for)
+from trade_data import (PROXY, SLACK_WEBHOOK_URL, _exists, build_notional, inst_for)
 
 COINS = {
     "OKX":     ["BTC", "SUI", "AAVE", "DOGE", "LINK", "ARB", "PEPE", "XRP"],
@@ -206,7 +206,7 @@ def main():
 
     today_utc = dt.datetime.now(dt.timezone.utc).date()
     run_date = today_utc.isoformat()
-    webhook = os.environ.get("SLACK_WEBHOOK_URL")
+    webhook = SLACK_WEBHOOK_URL
     try:
         print("探测各所可用归档窗口...", flush=True)
         windows = {e: resolve_window(AVAIL[e], today_utc) for e in ("OKX", "Bybit", "Binance")}

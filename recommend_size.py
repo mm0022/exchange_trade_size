@@ -29,9 +29,9 @@ import requests
 import urllib3
 import pandas as pd
 from tabulate import tabulate
+from trade_data import PROXY
 
 urllib3.disable_warnings()
-PROXY = {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"}
 BPS = list(range(1, 21))
 
 # 每轮刷新：(交易所, 币) -> (INC 开仓edge bps, DEC 平仓edge bps)

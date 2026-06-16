@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 import requests, urllib3
+from trade_data import PROXY
 
 urllib3.disable_warnings()
 
@@ -47,7 +48,6 @@ for c in BY_COINS:
 BPS = list(range(1, 21))   # 1..20
 OUT = Path("data/depth_log.csv")
 WORKERS = 8
-PROXY = {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"}
 
 
 def fetch_book(kind, key):

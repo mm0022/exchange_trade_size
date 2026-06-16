@@ -2,20 +2,27 @@
 
 `daily_report.py`：每天用最近 3 个已发布 UTC 日的逐笔数据，算 OKX/Bybit/Binance 各序列单笔 notional 的 P50/75/90（3 天中位）+ POV(P75, 5 单/min)，推 Slack 并存档 `data/daily_report.json`。逐笔历史增量缓存在 `data/daily/*.parquet`（与 `daily_stats.py` 共用，已存的天不重复下载）。
 
-## 1. 环境变量（webhook 不进仓库）
+## 1. 配置文件 config.toml
 
-把 Slack incoming webhook 放在专用文件，例如 `~/.config/trade_size.env`：
+代理与 Slack webhook 都放在项目根的 `config.toml`（该文件已 gitignore，不进仓库）。
+首次部署：复制模板并填入真实值。
 
 ```sh
-export SLACK_WEBHOOK_URL='https://hooks.slack.com/services/XXX/YYY/ZZZ'
+cd /Users/mac/dev/trade_size
+cp config.example.toml config.toml
+# 编辑 config.toml：
+#   proxy            = "http://127.0.0.1:7890"   # 留空 "" 则直连
+#   slack_webhook_url = "https://hooks.slack.com/services/XXX/YYY/ZZZ"  # 留空则不推 Slack
 ```
+
+`config.toml` 由 `trade_data.py` 从脚本同目录读取（cwd 无关）；缺失时回退默认（代理走本机 clash、webhook 空）。
 
 ## 2. crontab
 
 北京时间 8 点 = UTC 00:00。`crontab -e` 加一行（uv 与脚本均用绝对路径）：
 
 ```cron
-0 0 * * * cd /Users/mac/dev/trade_size && . ~/.config/trade_size.env && /Users/mac/.local/bin/uv run daily_report.py >> data/daily_report.log 2>&1
+0 0 * * * cd /Users/mac/dev/trade_size && /Users/mac/.local/bin/uv run daily_report.py >> data/daily_report.log 2>&1
 ```
 
 - uv 路径：本机为 `/Users/mac/.local/bin/uv`（`which uv` 确认）。
@@ -24,8 +31,8 @@ export SLACK_WEBHOOK_URL='https://hooks.slack.com/services/XXX/YYY/ZZZ'
 ## 3. 手动补跑 / 自测
 
 ```sh
-# 正常跑（推 Slack）
-. ~/.config/trade_size.env && /Users/mac/.local/bin/uv run daily_report.py
+# 正常跑（推 Slack，webhook 取自 config.toml）
+/Users/mac/.local/bin/uv run daily_report.py
 
 # 只算+存档，不推 Slack
 uv run daily_report.py --no-slack
