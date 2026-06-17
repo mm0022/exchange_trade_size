@@ -51,6 +51,60 @@ def test_okx_files_for_includes_nextday():
     assert okx_files_for(["2026-06-11"]) == ["2026-06-11", "2026-06-12"]
 
 
+def test_same_sec_price_agg_merges_same_second_same_price():
+    import trade_data as td
+    # 两笔同秒(ts同整秒)同价 → 合并为一单 notional=300; 另一笔不同价单独成单
+    df = pd.DataFrame({
+        "ts":   [1781136000100, 1781136000900, 1781136000500],
+        "price":[10.0, 10.0, 11.0],
+        "notional":[100.0, 200.0, 55.0],
+        "day": ["2026-06-13", "2026-06-13", "2026-06-13"],
+    })
+    out = td.same_sec_price_agg(df)
+    vals = sorted(out["notional"].tolist())
+    assert vals == [55.0, 300.0]
+    assert set(out.columns) >= {"day", "notional"}
+
+
+def test_same_sec_price_agg_separates_different_second():
+    import trade_data as td
+    df = pd.DataFrame({
+        "ts":   [1781136000100, 1781136001100],   # 不同秒
+        "price":[10.0, 10.0],
+        "notional":[100.0, 200.0],
+        "day": ["2026-06-13", "2026-06-13"],
+    })
+    out = td.same_sec_price_agg(df)
+    assert sorted(out["notional"].tolist()) == [100.0, 200.0]
+
+
+def test_agg_to_notional_price_times_qty():
+    import trade_data as td
+    raw = pd.DataFrame({"transact_time":[1781136000082], "price":[60000.0],
+                        "quantity":[0.5], "is_buyer_maker":[True],
+                        "agg_trade_id":[1],"first_trade_id":[1],"last_trade_id":[2]})
+    out = td._agg_to_notional(raw)
+    assert out["notional"].iloc[0] == 30000.0
+    assert out["ts"].iloc[0] == 1781136000082
+    assert set(out.columns) == {"ts","price","qty","notional","is_buyer_maker"}
+
+
+def test_build_agg_binance_caches(tmp_path, monkeypatch):
+    import trade_data as td
+    calls = {"n": 0}
+    def fake(sym, date):
+        calls["n"] += 1
+        ms = int(pd.Timestamp(date + "T00:00:00Z").timestamp()*1000)
+        return pd.DataFrame({"transact_time":[ms],"price":[10.0],"quantity":[2.0],
+                             "is_buyer_maker":[True],"agg_trade_id":[1],"first_trade_id":[1],"last_trade_id":[1]})
+    monkeypatch.setattr(td, "dl_bn_agg", fake)
+    d=["2026-06-13","2026-06-14"]
+    a=td.build_agg_binance("BTC",d,cache_dir=tmp_path); assert len(a)==2 and calls["n"]==2
+    b=td.build_agg_binance("BTC",d,cache_dir=tmp_path); assert calls["n"]==2 and len(b)==2
+    c=td.build_agg_binance("BTC",d+["2026-06-15"],cache_dir=tmp_path); assert calls["n"]==3 and len(c)==3
+    assert a["notional"].iloc[0]==20.0
+
+
 def test_build_notional_caches_and_skips_redownload(tmp_path, monkeypatch):
     import trade_data as td
     calls = {"n": 0}

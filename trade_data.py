@@ -96,6 +96,66 @@ def dl_bn(sym, date):
     return pd.read_csv(z.open(z.namelist()[0]))
 
 
+def dl_bn_agg(sym, date):
+    """下载 Binance aggTrades 日归档（一行=一个 taker 吃单聚合）。404→None。"""
+    c = _get(f"https://data.binance.vision/data/futures/um/daily/aggTrades/{sym}/{sym}-aggTrades-{date}.zip")
+    if c is None:
+        return None
+    z = zipfile.ZipFile(io.BytesIO(c))
+    return pd.read_csv(z.open(z.namelist()[0]))   # 实测有表头：agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker
+
+
+def _agg_to_notional(raw):
+    """Binance aggTrades 原始 → ts/price/qty/notional/is_buyer_maker（notional=price*quantity）。"""
+    if raw is None or raw.empty:
+        return None
+    ts = pd.to_numeric(raw["transact_time"]).astype("int64")
+    px = pd.to_numeric(raw["price"]); qty = pd.to_numeric(raw["quantity"])
+    return pd.DataFrame({"ts": ts, "price": px, "qty": qty,
+                         "notional": px * qty, "is_buyer_maker": raw["is_buyer_maker"]})
+
+
+def build_agg_binance(coin, days, cache_dir=OUTDIR):
+    """增量缓存 Binance aggTrades：data/daily/Binance_agg_{sym}_linear.parquet（schema 与既有一致）。
+    返回 days 窗口内 DataFrame（一行=一个 taker 吃单）；无数据返回 None。"""
+    cache_dir = Path(cache_dir)
+    sym = inst_for("Binance", coin, "linear")
+    outp = cache_dir / f"Binance_agg_{sym}_linear.parquet"
+    existing = pd.read_parquet(outp) if outp.exists() else None
+    have = set(existing["day"].unique()) if existing is not None else set()
+    need = [d for d in days if d not in have]
+    if need:
+        frames = []
+        for d in need:
+            f = _agg_to_notional(dl_bn_agg(sym, d))
+            if f is not None:
+                frames.append(f)
+        if frames:
+            new = pd.concat(frames, ignore_index=True).dropna()
+            new["day"] = pd.to_datetime(new.ts, unit="ms", utc=True).dt.strftime("%Y-%m-%d")
+            new = new[new.day.isin(need)]
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            combined = pd.concat([existing, new], ignore_index=True) if existing is not None else new
+            combined = combined.sort_values("ts").reset_index(drop=True)
+            combined.to_parquet(outp, index=False, compression="snappy")
+            existing = combined
+    if existing is None:
+        return None
+    out = existing[existing["day"].isin(days)].sort_values("ts").reset_index(drop=True)
+    return out if not out.empty else None
+
+
+def same_sec_price_agg(df):
+    """同秒同价聚合：同一 UTC 秒、同价的逐笔合并为一个逻辑单（sum notional）。
+    输入需有 ts(ms)/price/notional/day；返回 day, notional（每行一个聚合单）。"""
+    if df is None or df.empty:
+        return df
+    g = df.copy()
+    g["sec"] = g["ts"] // 1000
+    out = g.groupby(["day", "sec", "price"], as_index=False)["notional"].sum()
+    return out[["day", "notional"]]
+
+
 def to_notional(exch, coin, typ, raw):
     """一所一日原始逐笔 → 统一列 ts/price/size_raw/qty/notional。空/None 返回 None。"""
     if raw is None or raw.empty:

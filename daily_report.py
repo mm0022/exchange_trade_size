@@ -3,13 +3,14 @@
 # dependencies = ["requests", "urllib3", "pandas", "numpy", "pyarrow", "tabulate"]
 # ///
 """每日单笔报单量报告：最近3个已发布UTC日 → P50/75/90(3天中位)+POV(P75) → Slack + JSON 存档。
-用法: SLACK_WEBHOOK_URL=... uv run daily_report.py
-口径=trade_data 的原始·全部（每笔 notional 分位，不聚合不去微）。"""
+用法: uv run daily_report.py（配置见项目根 config.toml：proxy / slack_webhook_url）。
+口径=一笔吃单规模：Binance=aggTrades；OKX/Bybit=同秒同价聚合（从逐笔合并，高频币 BTC/ETH 略高估）。"""
 import argparse, datetime as dt, json, sys
 from pathlib import Path
 import numpy as np, pandas as pd, requests
 from tabulate import tabulate
-from trade_data import (PROXY, SLACK_WEBHOOK_URL, _exists, build_notional, inst_for)
+from trade_data import (PROXY, SLACK_WEBHOOK_URL, _exists, build_notional, inst_for,
+                        build_agg_binance, same_sec_price_agg)
 
 COINS = {
     "OKX":     ["BTC", "SUI", "AAVE", "DOGE", "LINK", "ARB", "PEPE", "XRP"],
@@ -148,6 +149,7 @@ def format_report(run_date, windows, rows):
     """拼 Slack 文本：每所一张等宽表（code block 包裹）。"""
     headers = ["币", "类型", "P50", "P75", "P90", "小时量中位", "POV(P75,5单/min)"]
     parts = [f"*每日单笔报单量报告 · {run_date}*"]
+    parts.append("_口径：一笔吃单规模 · Binance=aggTrades · OKX/Bybit=同秒同价聚合_")
     for exch in ("OKX", "Bybit", "Binance"):
         ex_rows = [r for r in rows if r["exch"] == exch]
         if not ex_rows:
@@ -179,20 +181,28 @@ def build_rows(windows):
         for coin in COINS[exch]:
             for typ in TYPES[exch]:
                 try:
-                    df = build_notional(exch, coin, typ, days)
-                    if df is None or df.empty:
-                        print(f"  ✗ {exch} {coin} {typ}: 无数据", flush=True)
-                        continue
-                    pcts = median_daily_percentiles(df, PCTS)
+                    # 口径=一笔吃单规模：Binance 用 aggTrades 归档；OKX/Bybit 无 agg 归档→对缓存的原始逐笔做同秒同价聚合
+                    if exch == "Binance":
+                        agg = build_agg_binance(coin, days)
+                        if agg is None or agg.empty:
+                            print(f"  ✗ {exch} {coin} {typ}: 无数据", flush=True)
+                            continue
+                    else:
+                        raw = build_notional(exch, coin, typ, days)
+                        if raw is None or raw.empty:
+                            print(f"  ✗ {exch} {coin} {typ}: 无数据", flush=True)
+                            continue
+                        agg = same_sec_price_agg(raw)
+                    pcts = median_daily_percentiles(agg, PCTS)
                     hv = hourly_median(exch, coin, typ, days)
                     label = "现货" if typ == "spot" else ("永续" if exch == "Binance" else "合约")
                     rows.append({
                         "exch": exch, "coin": coin, "type": label,
                         "p50": pcts[50], "p75": pcts[75], "p90": pcts[90],
-                        "notional_sum": float(df.notional.sum()), "trades": int(len(df)),
+                        "notional_sum": float(agg.notional.sum()), "trades": int(len(agg)),
                         "hourly_vol_median": hv, "pov_p75": pov(pcts[75], hv),
                     })
-                    print(f"  ✓ {exch} {coin} {typ}: {len(df):,} 笔", flush=True)
+                    print(f"  ✓ {exch} {coin} {typ}: {len(agg):,} 聚合单", flush=True)
                 except Exception as ex:
                     print(f"  ✗ {exch} {coin} {typ}: {repr(ex)[:80]}", flush=True)
     return rows

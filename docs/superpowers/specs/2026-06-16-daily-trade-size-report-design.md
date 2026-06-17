@@ -22,8 +22,10 @@
 | Binance | BTC, ETH, SOL, XRP, LINK, DOGE | 仅永续(linear) |
 
 - 币种/类型清单沿用现有 `daily_stats.py` 的 `COINS` / `TYPES`。
-- **口径 = 当前 `daily_stats.py` 的「原始·全部」**：每笔 notional 直接算分位，不聚合（不做同秒同价/aggTrades）、不去微单。这是已被 Binance 官方 K 线对账（成交额、笔数 24/24 天 0 误差）验证过的逻辑，直接复用。
-- notional 口径沿用现有：OKX 永续 `size(张)×ctVal×price`；Binance 取归档 `quote_qty`；其余 `币量×price`。
+- **口径 = 「一笔吃单规模」（聚合单）**：原始逐笔会把一个 taker 吃单拆成多条 fill，P75 低估真实下单量 2-9×，故改为按「一个逻辑吃单」算分位：
+  - **Binance**：直接用官方 `aggTrades` 日归档（一行=一个 taker 吃单聚合），与原始逐笔一样增量下载+缓存（`Binance_agg_{sym}_linear.parquet`，notional=price×quantity）。
+  - **OKX/Bybit**：无 aggTrades 归档，对已缓存的原始逐笔做「同秒同价聚合」——同一 UTC 秒、同价的逐笔合并为一单（sum notional）作为近似。注：同秒同价对高频币（BTC/ETH）会把恰好同秒同价的不同单也并到一起，略高估真实 aggTrades 口径。
+- 单条 notional 构造：OKX 永续 `size(张)×ctVal×price`、其余 `币量×price`（OKX/Bybit 同秒同价聚合的输入）；Binance aggTrades 用 `price×quantity`（归档无 quote_qty 列）。
 
 ## 3. 架构
 
@@ -137,6 +139,6 @@ crontab 一行，北京 8 点 = UTC 00:00：
 ## 10. 非目标（YAGNI）
 
 - 不做盘口深度/funding 合成（那是 `recommend_size.py` 的事，本报告只出成交分位 + POV）。
-- 不做聚合口径（aggTrades/同秒同价）——明确用「原始·全部」当前逻辑。
+- 不做盘口深度/funding 合成以外，聚合口径已采用（见 §2：Binance aggTrades、OKX/Bybit 同秒同价）——非原始逐笔。
 - 不做可视化图表、不做 Web 界面。
 - 不重写/删除现有历史脚本。
