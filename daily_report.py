@@ -22,6 +22,7 @@ PCTS = (50, 75, 90)
 ORDERS_PER_HOUR = 300   # 5 单/min × 60
 ARCHIVE = "data/daily_report.json"
 PROBE_COIN = "BTC"      # 用最活跃的币探测当日归档是否发布
+PROJECT = "exchange_trade_size"   # 报警/报告里的项目标识，便于在共享 Slack 频道区分来源
 
 
 def _okx_avail(ds):
@@ -148,7 +149,7 @@ def _pov_str(p):
 def format_report(run_date, windows, rows):
     """拼 Slack 文本：每所一张等宽表（code block 包裹）。"""
     headers = ["币", "类型", "P50", "P75", "P90", "小时量中位", "POV(P75,5单/min)"]
-    parts = [f"*每日单笔报单量报告 · {run_date}*"]
+    parts = [f"*[{PROJECT}] 每日单笔报单量报告 · {run_date}*"]
     parts.append("_口径：一笔吃单规模 · Binance=aggTrades · OKX/Bybit=同秒同价聚合_")
     for exch in ("OKX", "Bybit", "Binance"):
         ex_rows = [r for r in rows if r["exch"] == exch]
@@ -237,7 +238,7 @@ def main():
             post_slack(webhook, text)
             print("✓ 已推 Slack", flush=True)
     except Exception as ex:
-        msg = f"⚠️ 每日报告失败 {run_date}: {repr(ex)[:200]}"
+        msg = f"⚠️ [{PROJECT}] 每日报告失败 {run_date}: {repr(ex)[:200]}"
         print(msg, file=sys.stderr, flush=True)
         if webhook and not args.no_slack:
             try:
